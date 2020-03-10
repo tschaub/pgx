@@ -77,6 +77,8 @@ import (
 // Only intrinsic types should be binary format with database/sql.
 var databaseSQLResultFormats pgx.QueryResultFormatsByOID
 
+var fieldTypes map[uint32]driver.Value
+
 var pgxDriver *Driver
 
 type ctxKey int
@@ -107,6 +109,33 @@ func init() {
 		pgtype.TimestamptzOID: 1,
 		pgtype.XIDOID:         1,
 	}
+
+	fieldTypes[pgtype.BoolOID] = &pgtype.Bool{}
+	fieldTypes[pgtype.ByteaOID] = &pgtype.Bytea{}
+	fieldTypes[pgtype.CIDOID] = &pgtype.CID{}
+	fieldTypes[pgtype.DateOID] = &pgtype.Date{}
+	fieldTypes[pgtype.Float4OID] = &pgtype.Float4{}
+	fieldTypes[pgtype.Float8OID] = &pgtype.Float8{}
+	fieldTypes[pgtype.Int2OID] = &pgtype.Int2{}
+	fieldTypes[pgtype.Int4OID] = &pgtype.Int4{}
+	fieldTypes[pgtype.Int8OID] = &pgtype.Int8{}
+	fieldTypes[pgtype.JSONOID] = &pgtype.JSON{}
+	fieldTypes[pgtype.JSONBOID] = &pgtype.JSONB{}
+	fieldTypes[pgtype.OIDOID] = &pgtype.OIDValue{}
+	fieldTypes[pgtype.TimestampOID] = &pgtype.Timestamp{}
+	fieldTypes[pgtype.TimestamptzOID] = &pgtype.Timestamptz{}
+	fieldTypes[pgtype.XIDOID] = &pgtype.XID{}
+}
+
+// SetQueryResultFormat sets the result format for a Postgres type by object identifier.
+// Supported formats are 0 for text and 1 for binary.
+func SetQueryResultFormat(oid uint32, format int16) {
+	databaseSQLResultFormats[oid] = format
+}
+
+// SetFieldType sets the type to be used when scanning a Postgres value.
+func SetFieldType(oid uint32, value driver.Value) {
+	fieldTypes[oid] = value
 }
 
 var (
@@ -443,38 +472,9 @@ func (r *Rows) Next(dest []driver.Value) error {
 	if r.values == nil {
 		r.values = make([]interface{}, len(r.rows.FieldDescriptions()))
 		for i, fd := range r.rows.FieldDescriptions() {
-			switch fd.DataTypeOID {
-			case pgtype.BoolOID:
-				r.values[i] = &pgtype.Bool{}
-			case pgtype.ByteaOID:
-				r.values[i] = &pgtype.Bytea{}
-			case pgtype.CIDOID:
-				r.values[i] = &pgtype.CID{}
-			case pgtype.DateOID:
-				r.values[i] = &pgtype.Date{}
-			case pgtype.Float4OID:
-				r.values[i] = &pgtype.Float4{}
-			case pgtype.Float8OID:
-				r.values[i] = &pgtype.Float8{}
-			case pgtype.Int2OID:
-				r.values[i] = &pgtype.Int2{}
-			case pgtype.Int4OID:
-				r.values[i] = &pgtype.Int4{}
-			case pgtype.Int8OID:
-				r.values[i] = &pgtype.Int8{}
-			case pgtype.JSONOID:
-				r.values[i] = &pgtype.JSON{}
-			case pgtype.JSONBOID:
-				r.values[i] = &pgtype.JSONB{}
-			case pgtype.OIDOID:
-				r.values[i] = &pgtype.OIDValue{}
-			case pgtype.TimestampOID:
-				r.values[i] = &pgtype.Timestamp{}
-			case pgtype.TimestamptzOID:
-				r.values[i] = &pgtype.Timestamptz{}
-			case pgtype.XIDOID:
-				r.values[i] = &pgtype.XID{}
-			default:
+			if value, ok := fieldTypes[fd.DataTypeOID]; ok {
+				r.values[i] = value
+			} else {
 				r.values[i] = &pgtype.GenericText{}
 			}
 		}
