@@ -77,6 +77,8 @@ import (
 // Only intrinsic types should be binary format with database/sql.
 var databaseSQLResultFormats pgx.QueryResultFormatsByOID
 
+var dataTypeValues map[uint32]driver.Value
+
 var pgxDriver *Driver
 
 type ctxKey int
@@ -107,6 +109,32 @@ func init() {
 		pgtype.TimestamptzOID: 1,
 		pgtype.XIDOID:         1,
 	}
+
+	dataTypeValues = map[uint32]driver.Value{
+		pgtype.BoolOID:        &pgtype.Bool{},
+		pgtype.ByteaOID:       &pgtype.Bytea{},
+		pgtype.CIDOID:         &pgtype.CID{},
+		pgtype.DateOID:        &pgtype.Date{},
+		pgtype.Float4OID:      &pgtype.Float4{},
+		pgtype.Float8OID:      &pgtype.Float8{},
+		pgtype.Int2OID:        &pgtype.Int2{},
+		pgtype.Int4OID:        &pgtype.Int4{},
+		pgtype.Int8OID:        &pgtype.Int8{},
+		pgtype.JSONOID:        &pgtype.JSON{},
+		pgtype.JSONBOID:       &pgtype.JSONB{},
+		pgtype.OIDOID:         &pgtype.OIDValue{},
+		pgtype.TimestampOID:   &pgtype.Timestamp{},
+		pgtype.TimestamptzOID: &pgtype.Timestamptz{},
+		pgtype.XIDOID:         &pgtype.XID{},
+	}
+}
+
+// RegisterDataType allows a custom type to be used when encoding and decoding a Postgres value.
+func RegisterDataType(t pgtype.DataType) {
+	if _, ok := t.Value.(pgtype.BinaryDecoder); ok {
+		databaseSQLResultFormats[t.OID] = 1
+	}
+	dataTypeValues[t.OID] = t.Value
 }
 
 var (
@@ -443,38 +471,9 @@ func (r *Rows) Next(dest []driver.Value) error {
 	if r.values == nil {
 		r.values = make([]interface{}, len(r.rows.FieldDescriptions()))
 		for i, fd := range r.rows.FieldDescriptions() {
-			switch fd.DataTypeOID {
-			case pgtype.BoolOID:
-				r.values[i] = &pgtype.Bool{}
-			case pgtype.ByteaOID:
-				r.values[i] = &pgtype.Bytea{}
-			case pgtype.CIDOID:
-				r.values[i] = &pgtype.CID{}
-			case pgtype.DateOID:
-				r.values[i] = &pgtype.Date{}
-			case pgtype.Float4OID:
-				r.values[i] = &pgtype.Float4{}
-			case pgtype.Float8OID:
-				r.values[i] = &pgtype.Float8{}
-			case pgtype.Int2OID:
-				r.values[i] = &pgtype.Int2{}
-			case pgtype.Int4OID:
-				r.values[i] = &pgtype.Int4{}
-			case pgtype.Int8OID:
-				r.values[i] = &pgtype.Int8{}
-			case pgtype.JSONOID:
-				r.values[i] = &pgtype.JSON{}
-			case pgtype.JSONBOID:
-				r.values[i] = &pgtype.JSONB{}
-			case pgtype.OIDOID:
-				r.values[i] = &pgtype.OIDValue{}
-			case pgtype.TimestampOID:
-				r.values[i] = &pgtype.Timestamp{}
-			case pgtype.TimestamptzOID:
-				r.values[i] = &pgtype.Timestamptz{}
-			case pgtype.XIDOID:
-				r.values[i] = &pgtype.XID{}
-			default:
+			if value, ok := dataTypeValues[fd.DataTypeOID]; ok {
+				r.values[i] = reflect.New(reflect.ValueOf(value).Elem().Type()).Interface().(pgtype.Value)
+			} else {
 				r.values[i] = &pgtype.GenericText{}
 			}
 		}
