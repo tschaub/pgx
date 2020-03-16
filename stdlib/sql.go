@@ -114,6 +114,10 @@ var (
 	fakeTxConns map[*pgx.Conn]*sql.Tx
 )
 
+func RegisterBinaryType(oid uint32) {
+	databaseSQLResultFormats[oid] = 1
+}
+
 // GetDefaultDriver returns the driver initialized in the init function
 // and used when the pgx driver is registered.
 func GetDefaultDriver() driver.Driver {
@@ -475,7 +479,11 @@ func (r *Rows) Next(dest []driver.Value) error {
 			case pgtype.XIDOID:
 				r.values[i] = &pgtype.XID{}
 			default:
-				r.values[i] = &pgtype.GenericText{}
+				if format, ok := databaseSQLResultFormats[fd.DataTypeOID]; ok && format == pgtype.BinaryFormatCode {
+					r.values[i] = &pgtype.GenericBinary{}
+				} else {
+					r.values[i] = &pgtype.GenericText{}
+				}
 			}
 		}
 	}
